@@ -34,7 +34,7 @@ module.exports =
 /******/ 	// the startup function
 /******/ 	function startup() {
 /******/ 		// Load entry module and return exports
-/******/ 		return __webpack_require__(198);
+/******/ 		return __webpack_require__(131);
 /******/ 	};
 /******/
 /******/ 	// run startup
@@ -3193,6 +3193,230 @@ module.exports = require("child_process");
 
 /***/ }),
 
+/***/ 131:
+/***/ (function(__unusedmodule, exports, __webpack_require__) {
+
+"use strict";
+
+var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
+    function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
+    return new (P || (P = Promise))(function (resolve, reject) {
+        function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
+        function rejected(value) { try { step(generator["throw"](value)); } catch (e) { reject(e); } }
+        function step(result) { result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected); }
+        step((generator = generator.apply(thisArg, _arguments || [])).next());
+    });
+};
+var __importStar = (this && this.__importStar) || function (mod) {
+    if (mod && mod.__esModule) return mod;
+    var result = {};
+    if (mod != null) for (var k in mod) if (Object.hasOwnProperty.call(mod, k)) result[k] = mod[k];
+    result["default"] = mod;
+    return result;
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+const core = __importStar(__webpack_require__(470));
+const github = __importStar(__webpack_require__(469));
+const rest_1 = __webpack_require__(889);
+function run() {
+    var _a, _b, _c, _d, _e;
+    return __awaiter(this, void 0, void 0, function* () {
+        try {
+            const token = (_b = (_a = process) === null || _a === void 0 ? void 0 : _a.env) === null || _b === void 0 ? void 0 : _b.GITHUB_TOKEN;
+            if (!token) {
+                core.info(`'env.GITHUB_TOKEN' not found - exiting...`);
+                return;
+            }
+            const repo = (_d = (_c = process) === null || _c === void 0 ? void 0 : _c.env) === null || _d === void 0 ? void 0 : _d.GITHUB_REPOSITORY;
+            if (!repo) {
+                core.info(`'env.GITHUB_REPOSITORY' not found - exiting...`);
+                return;
+            }
+            const mergeCandidateLabel = core.getInput('label-candidate', {
+                required: true
+            });
+            const automergeLabel = core.getInput('label-automerge');
+            const order = core.getInput('order');
+            const sortOrder = order === 'first' ? 'asc' : 'desc';
+            const { payload } = github.context;
+            const octokit = new github.GitHub(token);
+            const existingAutomergePullRequest = yield findPullRequest(octokit, repo, automergeLabel, 'asc');
+            if (existingAutomergePullRequest) {
+                core.info(`NOT applying [automerge] label - found existing pull request waiting to be automerged: ${toString(existingAutomergePullRequest)}`);
+                if (existingAutomergePullRequest.reviewDecision === 'APPROVED') {
+                    core.setOutput('pull_request', toString(existingAutomergePullRequest));
+                }
+                return;
+            }
+            core.info(`No existing pull request(s) waiting to be automerged - checking event type...`);
+            switch (github.context.eventName) {
+                case 'push':
+                    const pushPayload = payload;
+                    core.info(`Push event:\n${toString(pushPayload)}`);
+                    break;
+                case 'pull_request':
+                    const pullRequestPayload = payload;
+                    core.info(`Pull Request event:\n${toString(pullRequestPayload)}`);
+                    core.info(`Pull Request event.mergeable_state: ${toString(pullRequestPayload.pull_request.mergeable_state)}`);
+                    if (pullRequestPayload.action === 'labeled') {
+                        core.info(`Action: pull_request.labeled`);
+                        const octokit = new rest_1.Octokit({
+                            auth: `token ${token}`
+                        });
+                        const [owner, reponame] = repo.split('/');
+                        const { data: pull_request } = yield octokit.pulls.get({
+                            owner: owner,
+                            repo: reponame,
+                            pull_number: pullRequestPayload.number
+                        });
+                        const { mergeable_state } = pull_request;
+                        core.info(`mergeable_state from @octokit/rest: ${mergeable_state}`);
+                        const label = (_e = pullRequestPayload['label']) === null || _e === void 0 ? void 0 : _e.name;
+                        if (label != mergeCandidateLabel) {
+                            core.info(`Label from LabeledEvent doesn't match candidate: [${mergeCandidateLabel}] != [${label}] - exiting...`);
+                            return;
+                        }
+                    }
+                    break;
+                case 'pull_request_review':
+                    const pullrequestReviewPayload = payload;
+                    core.info(`Pull Request Review event:\n${toString(pullrequestReviewPayload)}`);
+                    break;
+                default:
+                    core.info(`Unknown event:\n'${toString(payload)}'`);
+                    break;
+            }
+            core.info(`Looking for approved pull request ${order} labeled by: [${mergeCandidateLabel}]`);
+            const candidatePullRequest = yield findPullRequest(octokit, repo, mergeCandidateLabel, sortOrder, 'approved');
+            if (candidatePullRequest) {
+                core.info(`Found pull request candidate for automerge:\n'${toString(candidatePullRequest)}'`);
+                core.info(`Applying [automerge] label on: [${candidatePullRequest.title}](${candidatePullRequest.url})`);
+                const [owner, reponame] = repo.split('/');
+                yield addLabel(octokit, owner, reponame, candidatePullRequest.number, automergeLabel);
+                const { login: createdBy } = yield (yield octokit.users.getAuthenticated())
+                    .data;
+                candidatePullRequest.label = {
+                    name: automergeLabel,
+                    createdAt: new Date().toISOString(),
+                    createdBy
+                };
+                core.setOutput('pull_request', toString(candidatePullRequest));
+            }
+            else {
+                core.info(`No approved pull request(s) found matching the label: [${mergeCandidateLabel}]`);
+            }
+        }
+        catch (error) {
+            core.error(error);
+            core.setFailed(error.message);
+        }
+    });
+}
+function addLabel(octokit, owner, repo, prNumber, label) {
+    return __awaiter(this, void 0, void 0, function* () {
+        const params = {
+            owner: owner,
+            repo: repo,
+            issue_number: prNumber,
+            labels: [label]
+        };
+        core.info(`Adding label: ${toString(params)}`);
+        return yield octokit.issues.addLabels(params);
+    });
+}
+function getPullRequestsWithLabel(octokit, repo, label, reviewDecision) {
+    return __awaiter(this, void 0, void 0, function* () {
+        const reviewFilter = reviewDecision ? ' review:approved' : '';
+        const result = yield octokit
+            .graphql({
+            query: `query getMergeReadyPRs($query_exp:String!) {
+      search(query: $query_exp, type: ISSUE, first: 100) {
+        issueCount
+         edges {
+          node {
+            ... on PullRequest {
+              title
+              url
+              number
+              reviewDecision
+              timelineItems(last: 100, itemTypes: [LABELED_EVENT]) {
+                edges {
+                  node {
+                    __typename
+                    ... on LabeledEvent {
+                      createdAt
+                      actor {
+                        login
+                      }
+                      label {
+                        name
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+  }`,
+            query_exp: `repo:${repo} is:pr is:open ${reviewFilter} label:${label}`
+        })
+            .catch((error) => {
+            core.error(JSON.stringify(error));
+            core.setFailed(error.message);
+        });
+        core.info(`query result for label [${label}]${reviewFilter}: ${toString(result)}`);
+        return result;
+    });
+}
+function findPullRequest(octokit, repo, label, sortOrder, reviewDecision) {
+    return __awaiter(this, void 0, void 0, function* () {
+        const data = yield getPullRequestsWithLabel(octokit, repo, label, reviewDecision);
+        const firstMatchingPullRequest = data.search.edges
+            .map(pr => {
+            const matchingLabels = pr.node.timelineItems.edges
+                .filter(labeledEvent => labeledEvent.node.label.name === label)
+                // Order by latest applied:
+                .sort(sortByProperty(labeledEvent => labeledEvent.node.createdAt, 'desc'))
+                .map(labeledEvent => {
+                return {
+                    name: labeledEvent.node.label.name,
+                    createdAt: labeledEvent.node.createdAt,
+                    createdBy: labeledEvent.node.actor.login
+                };
+            });
+            const latestLabel = matchingLabels[0];
+            return {
+                title: pr.node.title,
+                number: pr.node.number,
+                url: pr.node.url,
+                reviewDecision: pr.node.reviewDecision,
+                label: latestLabel
+            };
+        })
+            .sort(sortByProperty(pr => pr.label.createdAt, sortOrder))[0];
+        return firstMatchingPullRequest;
+    });
+}
+function sortBy(getProperty, direction, a, b) {
+    return direction === 'asc'
+        ? getProperty(a).localeCompare(getProperty(b))
+        : getProperty(b).localeCompare(getProperty(a));
+}
+function sortByProperty(getProperty, direction) {
+    return (a, b) => {
+        return sortBy(getProperty, direction, a, b);
+    };
+}
+function toString(value) {
+    return JSON.stringify(value, null, 2);
+}
+run();
+
+
+/***/ }),
+
 /***/ 135:
 /***/ (function(module, __unusedexports, __webpack_require__) {
 
@@ -3702,230 +3926,6 @@ function checkMode (stat, options) {
 
   return ret
 }
-
-
-/***/ }),
-
-/***/ 198:
-/***/ (function(__unusedmodule, exports, __webpack_require__) {
-
-"use strict";
-
-var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
-    function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
-    return new (P || (P = Promise))(function (resolve, reject) {
-        function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
-        function rejected(value) { try { step(generator["throw"](value)); } catch (e) { reject(e); } }
-        function step(result) { result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected); }
-        step((generator = generator.apply(thisArg, _arguments || [])).next());
-    });
-};
-var __importStar = (this && this.__importStar) || function (mod) {
-    if (mod && mod.__esModule) return mod;
-    var result = {};
-    if (mod != null) for (var k in mod) if (Object.hasOwnProperty.call(mod, k)) result[k] = mod[k];
-    result["default"] = mod;
-    return result;
-};
-Object.defineProperty(exports, "__esModule", { value: true });
-const core = __importStar(__webpack_require__(470));
-const github = __importStar(__webpack_require__(469));
-const rest_1 = __webpack_require__(889);
-function run() {
-    var _a, _b, _c, _d, _e;
-    return __awaiter(this, void 0, void 0, function* () {
-        try {
-            const token = (_b = (_a = process) === null || _a === void 0 ? void 0 : _a.env) === null || _b === void 0 ? void 0 : _b.GITHUB_TOKEN;
-            if (!token) {
-                core.info(`'env.GITHUB_TOKEN' not found - exiting...`);
-                return;
-            }
-            const repo = (_d = (_c = process) === null || _c === void 0 ? void 0 : _c.env) === null || _d === void 0 ? void 0 : _d.GITHUB_REPOSITORY;
-            if (!repo) {
-                core.info(`'env.GITHUB_REPOSITORY' not found - exiting...`);
-                return;
-            }
-            const mergeCandidateLabel = core.getInput('label-candidate', {
-                required: true
-            });
-            const automergeLabel = core.getInput('label-automerge');
-            const order = core.getInput('order');
-            const sortOrder = order === 'first' ? 'asc' : 'desc';
-            const { payload } = github.context;
-            const octokit = new github.GitHub(token);
-            const existingAutomergePullRequest = yield findPullRequest(octokit, repo, automergeLabel, 'asc');
-            if (existingAutomergePullRequest) {
-                core.info(`NOT applying [automerge] label - found existing pull request waiting to be automerged: ${toString(existingAutomergePullRequest)}`);
-                if (existingAutomergePullRequest.reviewDecision === 'APPROVED') {
-                    core.setOutput('pull_request', toString(existingAutomergePullRequest));
-                }
-                return;
-            }
-            core.info(`No existing pull request(s) waiting to be automerged - checking event type...`);
-            switch (github.context.eventName) {
-                case 'push':
-                    const pushPayload = payload;
-                    core.info(`Push event:\n${toString(pushPayload)}`);
-                    break;
-                case 'pull_request':
-                    const pullRequestPayload = payload;
-                    core.info(`Pull Request event:\n${toString(pullRequestPayload)}`);
-                    core.info(`Pull Request event.mergeable_state: ${toString(pullRequestPayload.pull_request.mergeable_state)}`);
-                    if (pullRequestPayload.action === 'labeled') {
-                        core.info(`Action: pull_request.labeled`);
-                        const octokit = new rest_1.Octokit({
-                            auth: `token ${token}`
-                        });
-                        const [owner, reponame] = repo.split('/');
-                        const { data: pull_request } = yield octokit.pulls.get({
-                            owner: owner,
-                            repo: reponame,
-                            pull_number: pullRequestPayload.number
-                        });
-                        const { mergeable_state } = pull_request;
-                        core.info(`mergeable_state from @octokit/rest: ${mergeable_state}`);
-                        const label = (_e = pullRequestPayload['label']) === null || _e === void 0 ? void 0 : _e.name;
-                        if (label != mergeCandidateLabel) {
-                            core.info(`Label from LabeledEvent doesn't match candidate: [${mergeCandidateLabel}] != [${label}] - exiting...`);
-                            return;
-                        }
-                    }
-                    break;
-                case 'pull_request_review':
-                    const pullrequestReviewPayload = payload;
-                    core.info(`Pull Request Review event:\n${toString(pullrequestReviewPayload)}`);
-                    break;
-                default:
-                    core.info(`Unknown event:\n'${toString(payload)}'`);
-                    break;
-            }
-            core.info(`Looking for approved pull request ${order} labeled by: [${mergeCandidateLabel}]`);
-            const candidatePullRequest = yield findPullRequest(octokit, repo, mergeCandidateLabel, sortOrder, 'approved');
-            if (candidatePullRequest) {
-                core.info(`Found pull request candidate for automerge:\n'${toString(candidatePullRequest)}'`);
-                core.info(`Applying [automerge] label on: [${candidatePullRequest.title}](${candidatePullRequest.url})`);
-                const [owner, reponame] = repo.split('/');
-                yield addLabel(octokit, owner, reponame, candidatePullRequest.number, automergeLabel);
-                const { login: createdBy } = yield (yield octokit.users.getAuthenticated())
-                    .data;
-                candidatePullRequest.label = {
-                    name: automergeLabel,
-                    createdAt: new Date().toISOString(),
-                    createdBy
-                };
-                core.setOutput('pull_request', toString(candidatePullRequest));
-            }
-            else {
-                core.info(`No approved pull request(s) found matching the label: [${mergeCandidateLabel}]`);
-            }
-        }
-        catch (error) {
-            core.error(error);
-            core.setFailed(error.message);
-        }
-    });
-}
-function addLabel(octokit, owner, repo, prNumber, label) {
-    return __awaiter(this, void 0, void 0, function* () {
-        const params = {
-            owner: owner,
-            repo: repo,
-            issue_number: prNumber,
-            labels: [label]
-        };
-        core.info(`Adding label: ${toString(params)}`);
-        return yield octokit.issues.addLabels(params);
-    });
-}
-function getPullRequestsWithLabel(octokit, repo, label, reviewDecision) {
-    return __awaiter(this, void 0, void 0, function* () {
-        const reviewFilter = reviewDecision ? ' review:approved' : '';
-        const result = yield octokit
-            .graphql({
-            query: `query getMergeReadyPRs($query_exp:String!) {
-      search(query: $query_exp, type: ISSUE, first: 100) {
-        issueCount
-         edges {
-          node {
-            ... on PullRequest {
-              title
-              url
-              number
-              reviewDecision
-              timelineItems(last: 100, itemTypes: [LABELED_EVENT]) {
-                edges {
-                  node {
-                    __typename
-                    ... on LabeledEvent {
-                      createdAt
-                      actor {
-                        login
-                      }
-                      label {
-                        name
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-  }`,
-            query_exp: `repo:${repo} is:pr is:open ${reviewFilter} label:${label}`
-        })
-            .catch((error) => {
-            core.error(JSON.stringify(error));
-            core.setFailed(error.message);
-        });
-        core.info(`query result for label [${label}]${reviewFilter}: ${toString(result)}`);
-        return result;
-    });
-}
-function findPullRequest(octokit, repo, label, sortOrder, reviewDecision) {
-    return __awaiter(this, void 0, void 0, function* () {
-        const data = yield getPullRequestsWithLabel(octokit, repo, label, reviewDecision);
-        const firstMatchingPullRequest = data.search.edges
-            .map(pr => {
-            const matchingLabels = pr.node.timelineItems.edges
-                .filter(labeledEvent => labeledEvent.node.label.name === label)
-                // Order by latest applied:
-                .sort(sortByProperty(labeledEvent => labeledEvent.node.createdAt, 'desc'))
-                .map(labeledEvent => {
-                return {
-                    name: labeledEvent.node.label.name,
-                    createdAt: labeledEvent.node.createdAt,
-                    createdBy: labeledEvent.node.actor.login
-                };
-            });
-            const latestLabel = matchingLabels[0];
-            return {
-                title: pr.node.title,
-                number: pr.node.number,
-                url: pr.node.url,
-                reviewDecision: pr.node.reviewDecision,
-                label: latestLabel
-            };
-        })
-            .sort(sortByProperty(pr => pr.label.createdAt, sortOrder))[0];
-        return firstMatchingPullRequest;
-    });
-}
-function sortBy(getProperty, direction, a, b) {
-    return direction === 'asc'
-        ? getProperty(a).localeCompare(getProperty(b))
-        : getProperty(b).localeCompare(getProperty(a));
-}
-function sortByProperty(getProperty, direction) {
-    return (a, b) => {
-        return sortBy(getProperty, direction, a, b);
-    };
-}
-function toString(value) {
-    return JSON.stringify(value, null, 2);
-}
-run();
 
 
 /***/ }),
