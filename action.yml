@@ -1,10 +1,20 @@
-name: 'Your name here'
-description: 'Provide a description here'
-author: 'Your name or organization here'
+name: "Label first-in-queue Pull Request for automerge"
+description: "Find first or last pull request mathcing a given label and adds an [automerge] label (unless an existing PR with [automerge] label is found)."
 inputs:
-  myInput:              # change this
-    description: 'input description here'
-    default: 'default value if applicable'
+  label-candidate:
+    description: "Which label to filter candiate pull requests by."
+    required: true
+  label-automerge:
+    description: "Which automerge-label to add to matching candidate pull request. Defaults to `automerge`."
+    required: false
+    default: "automerge"
+  order:
+    description: "Whether to find the pull request that was first or last labeled by the given label."
+    required: false
+    default: "first"
+outputs:
+  pull_request:
+    description: "The first or last pull request matching the given candidate label (if found)"
 runs:
-  using: 'node12'
-  main: 'dist/index.js'
+  using: "node12"
+  main: "dist/index.js"

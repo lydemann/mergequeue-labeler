@@ -10,7 +10,7 @@
     "format-check": "prettier --check **/*.ts",
     "lint": "eslint src/**/*.ts",
     "pack": "ncc build",
-    "test": "jest",
+    "test": "jest --passWithNoTests",
     "all": "npm run build && npm run format && npm run lint && npm run pack && npm test"
   },
   "repository": {
@@ -25,7 +25,10 @@
   "author": "YourNameOrOrganization",
   "license": "MIT",
   "dependencies": {
-    "@actions/core": "^1.2.0"
+    "@actions/core": "^1.2.0",
+    "@actions/github": "^2.1.1",
+    "@octokit/rest": "^17.2.0",
+    "@octokit/webhooks": "^7.1.2"
   },
   "devDependencies": {
     "@types/jest": "^24.0.23",
@@ -41,5 +44,8 @@
     "prettier": "^1.19.1",
     "ts-jest": "^24.2.0",
     "typescript": "^3.6.4"
+  },
+  "husky": {
+    "pre-commit": "npm run pack && git add"
   }
 }
