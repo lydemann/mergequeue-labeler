@@ -1,5 +1,5 @@
 name: "Label first-in-queue Pull Request for automerge"
-description: "Find first or last pull request mathcing a given label and adds an [automerge] label (unless an existing PR with [automerge] label is found)."
+description: "Finds first or last pull request matching a given label and adds an [automerge] label."
 inputs:
   label-candidate:
     description: "Which label to filter candiate pull requests by."
